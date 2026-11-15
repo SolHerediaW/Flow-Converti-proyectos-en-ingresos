@@ -1,0 +1,211 @@
+.contenedor {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: sans-serif;
+  color: #222;
+}
+
+.encabezado {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 2px solid #e2e8f0;
+  padding-bottom: 12px;
+  margin-bottom: 20px;
+}
+
+.alerta-exito {
+  background-color: #d4edda;
+  color: #155724;
+  padding: 10px;
+  border-radius: 6px;
+  text-align: center;
+  margin-bottom: 15px;
+}
+
+.alerta-error {
+  background-color: #f8d7da;
+  color: #721c24;
+  padding: 10px;
+  border-radius: 6px;
+  text-align: center;
+  margin-bottom: 15px;
+}
+
+.barra-filtro-tiempo {
+  margin-bottom: 15px;
+}
+
+.panel-contadores {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.tarjeta-contador {
+  flex: 1;
+  background-color: #eef2f5;
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e0;
+  text-align: center;
+}
+
+.monto-verde {
+  color: #28a745;
+  font-weight: bold;
+}
+
+.monto-azul {
+  color: #007bff;
+  font-weight: bold;
+}
+
+.monto-rojo {
+  color: #e53e3e;
+  font-weight: bold;
+}
+
+.barra-superior {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.formulario-caja {
+  background-color: #f7fafc;
+  padding: 18px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e0;
+  margin-bottom: 20px;
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+
+.campo input,
+.campo textarea,
+.campo select {
+  padding: 6px;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+}
+
+.campo-checkbox {
+  margin-bottom: 12px;
+}
+
+.caja-filtros {
+  background-color: #edf2f7;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.filtros-encabezado {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.etiqueta-contador {
+  background-color: #fff;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.filtros-controles {
+  display: flex;
+  gap: 20px;
+}
+
+.tarjeta-proyecto {
+  border: 1px solid #cbd5e0;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  background-color: #fff;
+}
+
+.pie-tarjeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #edf2f7;
+}
+
+.formulario-edicion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.botones-fila {
+  display: flex;
+  gap: 8px;
+}
+
+.navegador-mes {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #e2e8f0;
+  padding: 10px 15px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.seccion-bloque {
+  border: 1px solid #cbd5e0;
+  padding: 18px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  background-color: #fff;
+}
+
+.item-costo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+/* Botones */
+button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  color: #fff;
+}
+
+.btn-primario {
+  background-color: #2b6cb0;
+}
+
+.btn-secundario {
+  background-color: #718096;
+}
+
+.btn-exito {
+  background-color: #38a169;
+}
+
+.btn-editar {
+  background-color: #d69e2e;
+}
+
+.btn-peligro {
+  background-color: #e53e3e;
+}
