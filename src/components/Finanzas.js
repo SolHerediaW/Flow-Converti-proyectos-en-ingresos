@@ -37,7 +37,6 @@ export function costoCorrespondeAMes(costo, mesSeleccionado) {
     return costo.mesInicio === mesSeleccionado;
   }
 
-  // Si es recurrente, comparamos cadenas "AAAA-MM"
   if (mesSeleccionado < costo.mesInicio) {
     return false;
   }
@@ -86,7 +85,6 @@ export function calcularContadoresFinancieros(proyectos, filtroTiempo) {
       cobrado = montoTotal;
     }
 
-    // Calcular saldo pendiente para proyección
     if (estadoPago !== "Pagado") {
       const saldoPendiente = montoTotal - cobrado;
       if (saldoPendiente > 0 && cumpleFiltroTiempo(proyecto.fechaEntrega, filtroTiempo)) {

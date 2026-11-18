@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { db } from "../services/firebase";
 import { collection, addDoc, updateDoc, deleteDoc, doc } from "firebase/firestore";
 import { formatearMoneda, costoCorrespondeAMes } from "./Finanzas";
@@ -7,6 +7,7 @@ export default function RegistroFinanciero({
   proyectos,
   costos,
   setCostos,
+  registrarCobroProyecto,
   mostrarExito,
   mostrarError
 }) {
@@ -20,6 +21,36 @@ export default function RegistroFinanciero({
   const [monedaCosto, setMonedaCosto] = useState("ARS");
   const [recurrente, setRecurrente] = useState(false);
 
+  // Estados para DolarAPI
+  const [cotizaciones, setCotizaciones] = useState([]);
+  const [cargandoDolar, setCargandoDolar] = useState(true);
+  const [errorDolar, setErrorDolar] = useState("");
+
+  useEffect(() => {
+    async function obtenerCotizaciones() {
+      setCargandoDolar(true);
+      setErrorDolar("");
+      try {
+        const respuesta = await fetch("https://dolarapi.com/v1/dolares");
+        if (!respuesta.ok) {
+          throw new Error("Error al consultar DolarAPI");
+        }
+        const datos = await respuesta.json();
+        const relevantes = datos.filter((d) =>
+          ["oficial", "blue"].includes(d.casa)
+        );
+        setCotizaciones(relevantes);
+      } catch (err) {
+        console.error(err);
+        setErrorDolar("Sin cotización");
+      } finally {
+        setCargandoDolar(false);
+      }
+    }
+
+    obtenerCotizaciones();
+  }, []);
+
   function cambiarMes(direccion) {
     const partes = mesSeleccionado.split("-");
     const anio = Number(partes[0]);
@@ -29,13 +60,23 @@ export default function RegistroFinanciero({
     setMesSeleccionado(`${nuevaFecha.getFullYear()}-${nuevoMes}`);
   }
 
+  function formatearPeriodoLegible(periodoStr) {
+    const nombresMeses = [
+      "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+      "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ];
+    const [anio, mes] = periodoStr.split("-");
+    const nombreMes = nombresMeses[Number(mes) - 1] || mes;
+    return `${nombreMes} - ${anio}`;
+  }
+
   async function agregarCosto(evento) {
     evento.preventDefault();
     const tituloLimpio = tituloCosto.trim();
     const montoNumero = Number(montoCosto);
 
     if (tituloLimpio === "" || montoNumero <= 0) {
-      mostrarError("Completá el título y un monto válido para el costo.");
+      mostrarError("No se pudo guardar el costo. Verificá que todos los campos obligatorios estén completos.");
       return;
     }
 
@@ -55,10 +96,10 @@ export default function RegistroFinanciero({
       setMontoCosto("");
       setRecurrente(false);
       setMostrarFormCosto(false);
-      mostrarExito("Costo guardado correctamente.");
+      mostrarExito("Costo registrado.");
     } catch (err) {
       console.error(err);
-      mostrarError("No se pudo guardar el costo.");
+      mostrarError("No se pudo guardar el costo. Verificá que todos los campos obligatorios estén completos.");
     }
   }
 
@@ -110,9 +151,9 @@ export default function RegistroFinanciero({
           fecha: fecha
         });
         if (moneda === "USD") {
-          ingresosUSD = ingresosUSD + sena;
+          ingresosUSD += sena;
         } else {
-          ingresosARS = ingresosARS + sena;
+          ingresosARS += sena;
         }
       }
     } else if (estadoPago === "Pagado") {
@@ -128,28 +169,31 @@ export default function RegistroFinanciero({
           fecha: fecha
         });
         if (moneda === "USD") {
-          ingresosUSD = ingresosUSD + montoTotal;
+          ingresosUSD += montoTotal;
         } else {
-          ingresosARS = ingresosARS + montoTotal;
+          ingresosARS += montoTotal;
         }
       }
     }
   }
 
-  // 2. Filtrar costos del mes seleccionado
+  // 2. Filtrar costos del mes seleccionado y separar recurrentes de puntuales
   const costosDelMes = costos.filter((c) => costoCorrespondeAMes(c, mesSeleccionado));
+  const costosRecurrentes = costosDelMes.filter((c) => c.recurrente);
+  const costosPuntuales = costosDelMes.filter((c) => !c.recurrente);
+
   let costosARS = 0;
   let costosUSD = 0;
 
   for (const c of costosDelMes) {
     if (c.moneda === "USD") {
-      costosUSD = costosUSD + Number(c.monto || 0);
+      costosUSD += Number(c.monto || 0);
     } else {
-      costosARS = costosARS + Number(c.monto || 0);
+      costosARS += Number(c.monto || 0);
     }
   }
 
-  // 3. Calcular proyectos terminados pendientes de cobro
+  // 3. Calcular proyectos terminados pendientes de cobro (global, sin depender del mes)
   const pendientesCobro = [];
   let porCobrarARS = 0;
   let porCobrarUSD = 0;
@@ -164,9 +208,9 @@ export default function RegistroFinanciero({
       if (saldo > 0) {
         pendientesCobro.push({ ...p, saldo: saldo, moneda: moneda });
         if (moneda === "USD") {
-          porCobrarUSD = porCobrarUSD + saldo;
+          porCobrarUSD += saldo;
         } else {
-          porCobrarARS = porCobrarARS + saldo;
+          porCobrarARS += saldo;
         }
       }
     }
@@ -177,134 +221,221 @@ export default function RegistroFinanciero({
 
   return (
     <section>
-      <h2>Registro Financiero</h2>
+      {/* Encabezado de página con DolarAPI compacto a la derecha */}
+      <div className="barra-superior-financiera">
+        <div>
+          <h2>Registro financiero</h2>
+          <p className="subtitulo-seccion">Analizá ingresos, gastos y ganancias.</p>
+        </div>
 
+        <div className="widget-dolar-compacto">
+          {cargandoDolar && <span className="texto-mini">Cargando Dólar...</span>}
+          {errorDolar && <span className="texto-mini">{errorDolar}</span>}
+          {!cargandoDolar && !errorDolar && (
+            <div className="dolar-items-fila">
+              {cotizaciones.map((dolar) => (
+                <div key={dolar.casa} className="dolar-pill">
+                  <span className="dolar-nombre">Dólar {dolar.nombre}</span>
+                  <span className="dolar-precios">
+                    C: <strong>${dolar.compra}</strong> | V: <strong>${dolar.venta}</strong>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Navegador de período */}
       <div className="navegador-mes">
         <button className="btn-primario" onClick={() => cambiarMes(-1)}>◀ Anterior</button>
-        <span><strong>Período:</strong> {mesSeleccionado}</span>
+        <span className="periodo-actual-texto">
+          <strong>{formatearPeriodoLegible(mesSeleccionado)}</strong>
+        </span>
         <button className="btn-primario" onClick={() => cambiarMes(1)}>Siguiente ▶</button>
       </div>
 
+      {/* Dos tarjetas principales: Resultado del mes y Por cobrar */}
       <div className="panel-contadores">
         <article className="tarjeta-contador">
-          <h3>Resumen ARS</h3>
-          <p><strong>Ingresos:</strong> {formatearMoneda(ingresosARS, "ARS")}</p>
-          <p><strong>Costos:</strong> {formatearMoneda(costosARS, "ARS")}</p>
-          <p className={gananciaARS < 0 ? "monto-rojo" : "monto-verde"}>
-            <strong>Ganancia Neta:</strong> {formatearMoneda(gananciaARS, "ARS")}
-          </p>
-          <p><strong>Por Cobrar:</strong> {formatearMoneda(porCobrarARS, "ARS")}</p>
+          <h3>Resultado del mes</h3>
+          <div className="resultado-destacado">
+            <span className="etiqueta-ganancia">Ganancia Neta</span>
+            <p className="valor-ganancia-grande">
+              ARS: {formatearMoneda(gananciaARS, "ARS")}
+            </p>
+            <p className="valor-ganancia-grande">
+              USD: {formatearMoneda(gananciaUSD, "USD")}
+            </p>
+          </div>
+          <div className="desglose-resultado">
+            <p>
+              <strong>Ingresos totales:</strong>{" "}
+              {formatearMoneda(ingresosARS, "ARS")} | {formatearMoneda(ingresosUSD, "USD")}
+            </p>
+            <p>
+              <strong>Costos totales:</strong>{" "}
+              -{formatearMoneda(costosARS, "ARS")} | -{formatearMoneda(costosUSD, "USD")}
+            </p>
+          </div>
         </article>
 
         <article className="tarjeta-contador">
-          <h3>Resumen USD</h3>
-          <p><strong>Ingresos:</strong> {formatearMoneda(ingresosUSD, "USD")}</p>
-          <p><strong>Costos:</strong> {formatearMoneda(costosUSD, "USD")}</p>
-          <p className={gananciaUSD < 0 ? "monto-rojo" : "monto-verde"}>
-            <strong>Ganancia Neta:</strong> {formatearMoneda(gananciaUSD, "USD")}
-          </p>
-          <p><strong>Por Cobrar:</strong> {formatearMoneda(porCobrarUSD, "USD")}</p>
+          <h3>Por cobrar</h3>
+          <p className="subtitulo-tarjeta-mini">Total acumulado de proyectos terminados pendientes</p>
+          <div className="resultado-destacado">
+            <p className="valor-ganancia-grande">
+              ARS: {formatearMoneda(porCobrarARS, "ARS")}
+            </p>
+            <p className="valor-ganancia-grande">
+              USD: {formatearMoneda(porCobrarUSD, "USD")}
+            </p>
+          </div>
         </article>
       </div>
 
-      <div className="seccion-bloque">
-        <h3>Ingresos del mes ({mesSeleccionado})</h3>
-        {ingresosDelMes.length === 0 ? (
-          <p>No hay ingresos registrados en este mes.</p>
-        ) : (
-          <ul>
-            {ingresosDelMes.map((item) => (
-              <li key={item.id}>
-                <strong>{item.cliente}</strong> - {item.titulo} ({item.tipo}):{" "}
-                <strong>{formatearMoneda(item.monto, item.moneda)}</strong> — {item.fecha}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <div className="seccion-bloque">
-        <div className="barra-superior">
-          <h3>Costos del mes ({mesSeleccionado})</h3>
-          <button
-            className="btn-exito"
-            onClick={() => setMostrarFormCosto(!mostrarFormCosto)}
-          >
-            {mostrarFormCosto ? "Cancelar" : "+ Agregar costo"}
-          </button>
-        </div>
-
-        {mostrarFormCosto && (
-          <form onSubmit={agregarCosto} className="formulario-caja">
-            <div className="campo">
-              <label>Título:</label>
-              <input type="text" value={tituloCosto} onChange={(e) => setTituloCosto(e.target.value)} />
-            </div>
-            <div className="campo">
-              <label>Monto:</label>
-              <input type="number" min="0" value={montoCosto} onChange={(e) => setMontoCosto(e.target.value)} />
-            </div>
-            <div className="campo">
-              <label>Moneda:</label>
-              <select value={monedaCosto} onChange={(e) => setMonedaCosto(e.target.value)}>
-                <option value="ARS">ARS</option>
-                <option value="USD">USD</option>
-              </select>
-            </div>
-            <div className="campo-checkbox">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={recurrente}
-                  onChange={(e) => setRecurrente(e.target.checked)}
-                />{" "}
-                Costo recurrente mensual
-              </label>
-            </div>
-            <button type="submit" className="btn-primario">Guardar Costo</button>
-          </form>
-        )}
-
-        {costosDelMes.length === 0 ? (
-          <p>No hay costos registrados para este mes.</p>
-        ) : (
-          <ul>
-            {costosDelMes.map((c) => (
-              <li key={c.id} className="item-costo">
-                <span>
-                  <strong>{c.titulo}</strong> - {formatearMoneda(c.monto, c.moneda)}{" "}
-                  {c.recurrente && "(Recurrente)"}
-                </span>
-                <div className="botones-fila">
-                  {c.recurrente && c.mesFin === "" && (
-                    <button className="btn-editar" onClick={() => darDeBajaCosto(c.id)}>
-                      Dar de baja
-                    </button>
-                  )}
-                  <button className="btn-peligro" onClick={() => eliminarCosto(c.id)}>
-                    Eliminar
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
+      {/* Pendientes de cobro con botón Registrar cobro */}
       <div className="seccion-bloque">
         <h3>Pendientes de cobro (Proyectos terminados)</h3>
         {pendientesCobro.length === 0 ? (
           <p>No hay proyectos terminados pendientes de cobro.</p>
         ) : (
-          <ul>
+          <ul className="lista-limpia">
             {pendientesCobro.map((p) => (
-              <li key={p.id}>
-                <strong>{p.cliente}</strong> - {p.titulo} | Saldo:{" "}
-                <strong>{formatearMoneda(p.saldo, p.moneda)}</strong>
+              <li key={p.id} className="item-pendiente-cobro">
+                <div>
+                  <strong>{p.cliente}</strong> - {p.titulo} | Saldo:{" "}
+                  <strong>{formatearMoneda(p.saldo, p.moneda)}</strong>
+                </div>
+                <button
+                  className="btn-primario"
+                  onClick={() => registrarCobroProyecto(p.id)}
+                >
+                  Registrar cobro
+                </button>
               </li>
             ))}
           </ul>
         )}
+      </div>
+
+      {/* Dos columnas lado a lado: Ingresos y Costos */}
+      <div className="grilla-ingresos-costos">
+        {/* Columna Izquierda: Ingresos */}
+        <div className="seccion-bloque">
+          <div className="barra-superior">
+            <h3>Ingresos</h3>
+          </div>
+          {ingresosDelMes.length === 0 ? (
+            <p>No hay ingresos registrados en este mes.</p>
+          ) : (
+            <ul className="lista-limpia">
+              {ingresosDelMes.map((item) => (
+                <li key={item.id} className="item-financiero">
+                  <strong>{item.cliente}</strong> - {item.titulo} ({item.tipo}):{" "}
+                  <strong>{formatearMoneda(item.monto, item.moneda)}</strong> — {item.fecha}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Columna Derecha: Costos */}
+        <div className="seccion-bloque">
+          <div className="barra-superior">
+            <h3>Costos</h3>
+            <button
+              className="btn-exito"
+              onClick={() => setMostrarFormCosto(!mostrarFormCosto)}
+            >
+              {mostrarFormCosto ? "Cancelar" : "+ Agregar costo"}
+            </button>
+          </div>
+
+          {mostrarFormCosto && (
+            <form onSubmit={agregarCosto} className="formulario-caja">
+              <div className="campo">
+                <label>Título:</label>
+                <input type="text" value={tituloCosto} onChange={(e) => setTituloCosto(e.target.value)} />
+              </div>
+              <div className="campo">
+                <label>Monto:</label>
+                <input type="number" min="0" value={montoCosto} onChange={(e) => setMontoCosto(e.target.value)} />
+              </div>
+              <div className="campo">
+                <label>Moneda:</label>
+                <select value={monedaCosto} onChange={(e) => setMonedaCosto(e.target.value)}>
+                  <option value="ARS">ARS</option>
+                  <option value="USD">USD</option>
+                </select>
+              </div>
+              <div className="campo-checkbox">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={recurrente}
+                    onChange={(e) => setRecurrente(e.target.checked)}
+                  />{" "}
+                  Costo recurrente mensual
+                </label>
+              </div>
+              <button type="submit" className="btn-primario">Guardar Costo</button>
+            </form>
+          )}
+
+          {costosDelMes.length === 0 ? (
+            <p className="mensaje-vacio">
+              Todavía no registraste costos para este período. Agregá servicios, suscripciones o materiales para calcular tu ganancia real.
+            </p>
+          ) : (
+            <div>
+              {costosRecurrentes.length > 0 && (
+                <div className="subgrupo-costos">
+                  <h4 className="subtitulo-costos">Costos recurrentes (fijos)</h4>
+                  <ul className="lista-limpia">
+                    {costosRecurrentes.map((c) => (
+                      <li key={c.id} className="item-costo">
+                        <span>
+                          <strong>{c.titulo}</strong>: {formatearMoneda(c.monto, c.moneda)}
+                        </span>
+                        <div className="botones-fila">
+                          {c.mesFin === "" && (
+                            <button className="btn-editar" onClick={() => darDeBajaCosto(c.id)}>
+                              Dar de baja
+                            </button>
+                          )}
+                          <button className="btn-peligro" onClick={() => eliminarCosto(c.id)}>
+                            Eliminar
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {costosPuntuales.length > 0 && (
+                <div className="subgrupo-costos">
+                  <h4 className="subtitulo-costos">Costos agregados este mes</h4>
+                  <ul className="lista-limpia">
+                    {costosPuntuales.map((c) => (
+                      <li key={c.id} className="item-costo">
+                        <span>
+                          <strong>{c.titulo}</strong>: {formatearMoneda(c.monto, c.moneda)}
+                        </span>
+                        <div className="botones-fila">
+                          <button className="btn-peligro" onClick={() => eliminarCosto(c.id)}>
+                            Eliminar
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );

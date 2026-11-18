@@ -5,7 +5,7 @@ import { getAuth, signInAnonymously } from "firebase/auth";
 import FormularioProyecto from "./components/FormularioProyecto";
 import ListaProyectos from "./components/ListaProyectos";
 import RegistroFinanciero from "./components/RegistroFinanciero";
-import { calcularContadoresFinancieros, formatearMoneda } from "./components/Finanzas";
+import CalendarioProyectos from "./components/CalendarioProyectos";
 import "./App.css";
 
 export default function App() {
@@ -19,9 +19,9 @@ export default function App() {
   const [vistaActual, setVistaActual] = useState("principal");
 
   // Estados de filtros
+  const [busqueda, setBusqueda] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("Todos");
   const [filtroPago, setFiltroPago] = useState("Todos");
-  const [filtroTiempo, setFiltroTiempo] = useState("Este mes");
 
   useEffect(() => {
     async function iniciarYCargar() {
@@ -69,12 +69,13 @@ export default function App() {
   }
 
   async function agregarProyecto(nuevoProyecto) {
+    mostrarAvisoExito("Guardando proyecto...");
     try {
       const docRef = await addDoc(collection(db, "proyectos"), nuevoProyecto);
       const proyectoConId = { id: docRef.id, ...nuevoProyecto };
       setProyectos((anteriores) => [...anteriores, proyectoConId]);
       setMostrarFormulario(false);
-      mostrarAvisoExito("Se subió su proyecto correctamente.");
+      mostrarAvisoExito("Proyecto creado correctamente.");
     } catch (err) {
       console.error(err);
       mostrarAvisoError("No se pudo guardar el proyecto.");
@@ -102,9 +103,34 @@ export default function App() {
       setProyectos((anteriores) =>
         anteriores.map((p) => (p.id === id ? { ...p, estadoTrabajo: nuevoEstado } : p))
       );
+      mostrarAvisoExito("Estado actualizado.");
     } catch (err) {
       console.error(err);
       mostrarAvisoError("No se pudo cambiar el estado.");
+    }
+  }
+
+  async function registrarCobroProyecto(id) {
+    const hoy = new Date();
+    const anio = hoy.getFullYear();
+    const mes = String(hoy.getMonth() + 1).padStart(2, "0");
+    const dia = String(hoy.getDate()).padStart(2, "0");
+    const fechaHoy = `${anio}-${mes}-${dia}`;
+
+    try {
+      const proyectoRef = doc(db, "proyectos", id);
+      const datosCobro = {
+        estadoPago: "Pagado",
+        fechaCobroPagoFinal: fechaHoy
+      };
+      await updateDoc(proyectoRef, datosCobro);
+      setProyectos((anteriores) =>
+        anteriores.map((p) => (p.id === id ? { ...p, ...datosCobro } : p))
+      );
+      mostrarAvisoExito("Cobro registrado correctamente.");
+    } catch (err) {
+      console.error(err);
+      mostrarAvisoError("No se pudo registrar el cobro.");
     }
   }
 
@@ -119,100 +145,145 @@ export default function App() {
     }
   }
 
-  // Cálculo directo durante el render (sin useEffect extra)
-  const contadores = calcularContadoresFinancieros(proyectos, filtroTiempo);
-
+  // Filtrado combinado: búsqueda insensible a mayúsculas + estado + pago
   const proyectosFiltrados = proyectos.filter((proyecto) => {
+    const textoBuscado = busqueda.trim().toLowerCase();
+    const cumpleBusqueda =
+      textoBuscado === "" ||
+      (proyecto.titulo && proyecto.titulo.toLowerCase().includes(textoBuscado)) ||
+      (proyecto.cliente && proyecto.cliente.toLowerCase().includes(textoBuscado)) ||
+      (proyecto.descripcion && proyecto.descripcion.toLowerCase().includes(textoBuscado));
+
     const cumpleEstado = filtroEstado === "Todos" || proyecto.estadoTrabajo === filtroEstado;
     const estadoPagoActual = proyecto.estadoPago || "Impago";
     const cumplePago = filtroPago === "Todos" || estadoPagoActual === filtroPago;
-    return cumpleEstado && cumplePago;
+
+    return cumpleBusqueda && cumpleEstado && cumplePago;
   });
 
+  if (cargando && proyectos.length === 0 && costos.length === 0) {
+    return (
+      <div className="pantalla-carga-global">
+        <h1>Flow</h1>
+        <p className="slogan">Convertí tus proyectos en ingresos</p>
+        <p>Cargando tu espacio de trabajo...</p>
+      </div>
+    );
+  }
+
   return (
-    <main className="contenedor">
-      <header className="encabezado">
-        <h1>Gestor Freelance</h1>
-        <button
-          className="btn-secundario"
-          onClick={() => setVistaActual(vistaActual === "principal" ? "financiero" : "principal")}
-        >
-          {vistaActual === "principal" ? "Registro financiero" : "Volver a Proyectos"}
-        </button>
+    <div className="app-wrapper">
+      {/* Header fijo bajo (60px) con marca y navegación */}
+      <header className="header-fijo">
+        <div className="header-marca">
+          <h1>Flow</h1>
+          <span className="header-slogan">Convertí tus proyectos en ingresos</span>
+        </div>
+
+        <nav className="header-nav">
+          <button
+            className={`btn-nav ${vistaActual === "principal" ? "activo" : ""}`}
+            onClick={() => setVistaActual("principal")}
+          >
+            Mis proyectos
+          </button>
+          <button
+            className={`btn-nav ${vistaActual === "financiero" ? "activo" : ""}`}
+            onClick={() => setVistaActual("financiero")}
+          >
+            Registro financiero
+          </button>
+        </nav>
       </header>
 
-      {mensajeExito && <p className="alerta-exito">{mensajeExito}</p>}
-      {error && <p className="alerta-error" role="alert">{error}</p>}
+      <main className="contenedor-principal">
+        {mensajeExito && <p className="alerta-exito">{mensajeExito}</p>}
+        {error && <p className="alerta-error" role="alert">{error}</p>}
 
-      {vistaActual === "principal" && (
-        <>
-          <div className="barra-filtro-tiempo">
-            <label htmlFor="select-tiempo"><strong>Período financiero: </strong></label>
-            <select
-              id="select-tiempo"
-              value={filtroTiempo}
-              onChange={(e) => setFiltroTiempo(e.target.value)}
-            >
-              <option value="Este mes">Este mes</option>
-              <option value="Este año">Este año</option>
-            </select>
-          </div>
+        {vistaActual === "principal" && (
+          <>
+            <div className="encabezado-pagina">
+              <h2>Mis proyectos</h2>
+              <p className="subtitulo-seccion">
+                Planificá tus entregas, organizá tus proyectos y mantené el control de tus proyectos
+              </p>
+            </div>
 
-          <section className="panel-contadores">
-            <article className="tarjeta-contador">
-              <h3>Ingresos Confirmados</h3>
-              <p className="monto-verde">ARS: {formatearMoneda(contadores.confirmadosARS, "ARS")}</p>
-              <p className="monto-verde">USD: {formatearMoneda(contadores.confirmadosUSD, "USD")}</p>
-            </article>
+            {/* Sección 1: Próximas entregas + Calendario */}
+            <section className="seccion-bloque">
+              <div className="encabezado-seccion-interna">
+                <h3>Próximas entregas</h3>
+                <p className="subtitulo-seccion">
+                  Consulta tus fechas de entrega y detectá rápidamente los proyectos que requieren atención
+                </p>
+              </div>
+              <CalendarioProyectos proyectos={proyectos} />
+            </section>
 
-            <article className="tarjeta-contador">
-              <h3>Proyección Potencial</h3>
-              <p className="monto-azul">ARS: {formatearMoneda(contadores.proyeccionARS, "ARS")}</p>
-              <p className="monto-azul">USD: {formatearMoneda(contadores.proyeccionUSD, "USD")}</p>
-            </article>
-          </section>
+            {/* Sección 2: Espacio de trabajo + Filtros + Grilla de Cards */}
+            <section className="seccion-bloque">
+              <div className="barra-superior">
+                <div>
+                  <h3>Espacio de trabajo</h3>
+                  <p className="subtitulo-seccion">
+                    Administrá cada etapa de tus proyectos y registrá nuevos trabajos
+                  </p>
+                </div>
+                <button
+                  className="btn-primario btn-nuevo-escritorio"
+                  onClick={() => setMostrarFormulario(true)}
+                >
+                  + Nuevo proyecto
+                </button>
+              </div>
 
-          <div className="barra-superior">
-            <h2>Mis proyectos</h2>
+              <ListaProyectos
+                proyectos={proyectosFiltrados}
+                totalProyectos={proyectos.length}
+                cargando={cargando}
+                cambiarEstadoTrabajo={cambiarEstadoTrabajo}
+                registrarCobroProyecto={registrarCobroProyecto}
+                eliminarProyecto={eliminarProyecto}
+                editarProyecto={editarProyecto}
+                busqueda={busqueda}
+                setBusqueda={setBusqueda}
+                filtroEstado={filtroEstado}
+                setFiltroEstado={setFiltroEstado}
+                filtroPago={filtroPago}
+                setFiltroPago={setFiltroPago}
+              />
+            </section>
+
+            {/* Botón flotante redondo para celular */}
             <button
-              className="btn-primario"
-              onClick={() => setMostrarFormulario(!mostrarFormulario)}
+              className="btn-flotante-movil"
+              onClick={() => setMostrarFormulario(true)}
+              aria-label="Nuevo proyecto"
             >
-              {mostrarFormulario ? "Cerrar formulario" : "+ Nuevo proyecto"}
+              +
             </button>
-          </div>
 
-          {mostrarFormulario && (
-            <FormularioProyecto
-              agregarProyecto={agregarProyecto}
-              mostrarError={mostrarAvisoError}
-            />
-          )}
+            {/* Modal de creación */}
+            {mostrarFormulario && (
+              <FormularioProyecto
+                agregarProyecto={agregarProyecto}
+                cerrarModal={() => setMostrarFormulario(false)}
+              />
+            )}
+          </>
+        )}
 
-          <ListaProyectos
-            proyectos={proyectosFiltrados}
-            totalProyectos={proyectos.length}
-            cargando={cargando}
-            cambiarEstadoTrabajo={cambiarEstadoTrabajo}
-            eliminarProyecto={eliminarProyecto}
-            editarProyecto={editarProyecto}
-            filtroEstado={filtroEstado}
-            setFiltroEstado={setFiltroEstado}
-            filtroPago={filtroPago}
-            setFiltroPago={setFiltroPago}
+        {vistaActual === "financiero" && (
+          <RegistroFinanciero
+            proyectos={proyectos}
+            costos={costos}
+            setCostos={setCostos}
+            registrarCobroProyecto={registrarCobroProyecto}
+            mostrarExito={mostrarAvisoExito}
+            mostrarError={mostrarAvisoError}
           />
-        </>
-      )}
-
-      {vistaActual === "financiero" && (
-        <RegistroFinanciero
-          proyectos={proyectos}
-          costos={costos}
-          setCostos={setCostos}
-          mostrarExito={mostrarAvisoExito}
-          mostrarError={mostrarAvisoError}
-        />
-      )}
-    </main>
+        )}
+      </main>
+    </div>
   );
 }
