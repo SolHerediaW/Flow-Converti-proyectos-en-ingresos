@@ -1,107 +1,145 @@
 import { useState } from "react";
 
 export default function CalendarioProyectos({ proyectos }) {
-  const hoy = new Date();
-  const [anioActual, setAnioActual] = useState(hoy.getFullYear());
-  const [mesActual, setMesActual] = useState(hoy.getMonth());
+  const [fechaActual, setFechaActual] = useState(new Date());
+
+  const anio = fechaActual.getFullYear();
+  const mes = fechaActual.getMonth();
 
   const nombresMeses = [
     "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
     "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
   ];
 
-  const diasSemana = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-
   function cambiarMes(direccion) {
-    const nuevaFecha = new Date(anioActual, mesActual + direccion, 1);
-    setAnioActual(nuevaFecha.getFullYear());
-    setMesActual(nuevaFecha.getMonth());
+    setFechaActual(new Date(anio, mes + direccion, 1));
   }
 
-  function volverAHoy() {
-    setAnioActual(hoy.getFullYear());
-    setMesActual(hoy.getMonth());
-  }
+  const primerDiaMes = new Date(anio, mes, 1).getDay();
+  const totalDiasMes = new Date(anio, mes + 1, 0).getDate();
 
-  const primerDiaSemana = new Date(anioActual, mesActual, 1).getDay();
-  const totalDiasMes = new Date(anioActual, mesActual + 1, 0).getDate();
+  const diasSemana = ["D", "L", "M", "M", "X", "V", "S"];
 
   const celdas = [];
-  for (let i = 0; i < primerDiaSemana; i++) {
-    celdas.push(null);
+  for (let i = 0; i < primerDiaMes; i++) {
+    celdas.push({ tipo: "vacia", id: `vacia-${i}` });
   }
+
   for (let dia = 1; dia <= totalDiasMes; dia++) {
-    celdas.push(dia);
+    const mesStr = String(mes + 1).padStart(2, "0");
+    const diaStr = String(dia).padStart(2, "0");
+    const fechaIso = `${anio}-${mesStr}-${diaStr}`;
+
+    const proyectosDelDia = proyectos.filter((p) => p.fechaEntrega === fechaIso);
+
+    celdas.push({
+      tipo: "dia",
+      numero: dia,
+      fecha: fechaIso,
+      proyectos: proyectosDelDia,
+      id: `dia-${dia}`
+    });
   }
 
-  const mesFormateado = String(mesActual + 1).padStart(2, "0");
-  const prefijoMes = `${anioActual}-${mesFormateado}`;
-
-  function obtenerProyectosDelDia(dia) {
-    if (!dia) return [];
-    const diaFormateado = String(dia).padStart(2, "0");
-    const fechaBuscada = `${prefijoMes}-${diaFormateado}`;
-    return proyectos.filter((p) => p.fechaEntrega === fechaBuscada);
-  }
-
-  const esMesActualReal =
-    anioActual === hoy.getFullYear() && mesActual === hoy.getMonth();
+  const hoyIso = new Date().toISOString().split("T")[0];
+  const esMobile = typeof window !== "undefined" && window.innerWidth <= 768;
 
   return (
-    <div className="calendario-contenedor">
+    <div>
       <div className="calendario-controles-barra">
-        <strong className="calendario-mes-label">
-          {nombresMeses[mesActual]} - {anioActual}
-        </strong>
-        <div className="botones-fila">
-          <button className="btn-secundario" onClick={() => cambiarMes(-1)}>
-            ◀ Anterior
-          </button>
-          <button className="btn-secundario" onClick={volverAHoy}>
-            Hoy
-          </button>
-          <button className="btn-secundario" onClick={() => cambiarMes(1)}>
-            Siguiente ▶
-          </button>
-        </div>
+        <button className="btn-secundario" onClick={() => cambiarMes(-1)} title="Anterior">
+          <span className="material-symbols-outlined">chevron_left</span>
+        </button>
+        <span className="calendario-mes-label">
+          <strong>{nombresMeses[mes]} {anio}</strong>
+        </span>
+        <button className="btn-secundario" onClick={() => cambiarMes(1)} title="Siguiente">
+          <span className="material-symbols-outlined">chevron_right</span>
+        </button>
       </div>
 
       <div className="calendario-grilla">
-        {diasSemana.map((nombreDia) => (
-          <div key={nombreDia} className="calendario-cabecera-dia">
-            {nombreDia}
+        {diasSemana.map((d, index) => (
+          <div key={index} className="calendario-cabecera-dia">
+            {d}
           </div>
         ))}
 
-        {celdas.map((dia, index) => {
-          const proyectosDia = obtenerProyectosDelDia(dia);
-          const esHoy = esMesActualReal && dia === hoy.getDate();
+        {celdas.map((celda) => {
+          if (celda.tipo === "vacia") {
+            return <div key={celda.id} className="calendario-celda vacia"></div>;
+          }
+
+          const esHoy = celda.fecha === hoyIso;
 
           return (
-            <div
-              key={index}
-              className={`calendario-celda ${!dia ? "vacia" : ""} ${
-                esHoy ? "hoy" : ""
-              }`}
-            >
-              {dia && (
-                <>
-                  <span className="calendario-numero-dia">{dia}</span>
-                  <div className="calendario-eventos">
-                    {proyectosDia.map((p) => (
+            <div key={celda.id} className={`calendario-celda ${esHoy ? "hoy" : ""}`}>
+              <span className="calendario-numero-dia">{celda.numero}</span>
+              
+              {esMobile ? (
+                /* Versión Mobile: Solo líneas de colores */
+                <div className="calendario-barras-eventos" style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px' }}>
+                  {celda.proyectos.map((p) => {
+                    const estadoClase = (p.estadoTrabajo || "Pendiente").toLowerCase().replace(/\s+/g, "-");
+                    return (
                       <div
                         key={p.id}
-                        className={`calendario-evento-item estado-${p.estadoTrabajo
-                          ?.toLowerCase()
-                          .replace(/\s+/g, "-")}`}
-                        title={`${p.titulo} - Cliente: ${p.cliente} (${p.estadoTrabajo})`}
+                        className={`calendario-barra-color ${estadoClase}`}
+                        style={{
+                          height: '5px',
+                          borderRadius: '3px',
+                          width: '100%',
+                          backgroundColor:
+                            estadoClase === 'terminado'
+                              ? '#2ECC71'
+                              : estadoClase === 'en-proceso'
+                              ? '#F4C95D'
+                              : '#4B7BEC'
+                        }}
+                        title={`${p.titulo} (${p.estadoTrabajo})`}
+                      ></div>
+                    );
+                  })}
+                </div>
+              ) : (
+                /* Versión Desktop: Etiquetas con título y cliente */
+                <div className="calendario-eventos" style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px' }}>
+                  {celda.proyectos.map((p) => {
+                    const estadoClase = (p.estadoTrabajo || "Pendiente").toLowerCase().replace(/\s+/g, "-");
+                    return (
+                      <div
+                        key={p.id}
+                        className={`calendario-evento-item estado-${estadoClase}`}
+                        style={{
+                          padding: '3px 6px',
+                          fontSize: '10px',
+                          borderRadius: '6px',
+                          backgroundColor:
+                            estadoClase === 'terminado'
+                              ? 'rgba(46, 204, 113, 0.25)'
+                              : estadoClase === 'en-proceso'
+                              ? 'rgba(244, 201, 93, 0.25)'
+                              : 'rgba(75, 123, 236, 0.25)',
+                          borderLeft: `3px solid ${
+                            estadoClase === 'terminado'
+                              ? '#2ECC71'
+                              : estadoClase === 'en-proceso'
+                              ? '#F4C95D'
+                              : '#4B7BEC'
+                          }`,
+                          color: '#FFFFFF'
+                        }}
                       >
-                        <strong>{p.titulo}</strong>
-                        <span>{p.cliente}</span>
+                        <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {p.titulo}
+                        </strong>
+                        <span style={{ fontSize: '9px', opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {p.cliente}
+                        </span>
                       </div>
-                    ))}
-                  </div>
-                </>
+                    );
+                  })}
+                </div>
               )}
             </div>
           );

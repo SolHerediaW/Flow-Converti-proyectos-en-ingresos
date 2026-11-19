@@ -6,19 +6,19 @@ import FormularioProyecto from "./components/FormularioProyecto";
 import ListaProyectos from "./components/ListaProyectos";
 import RegistroFinanciero from "./components/RegistroFinanciero";
 import CalendarioProyectos from "./components/CalendarioProyectos";
+import { formatearMoneda } from "./components/Finanzas";
 import "./App.css";
 
 export default function App() {
   const [proyectos, setProyectos] = useState([]);
   const [costos, setCostos] = useState([]);
   const [cargando, setCargando] = useState(true);
-  const [error, setError] = useState("");
-  const [mensajeExito, setMensajeExito] = useState("");
+  const [errorGlobal, setErrorGlobal] = useState("");
+  const [mensajeExitoGlobal, setMensajeExitoGlobal] = useState("");
 
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   const [vistaActual, setVistaActual] = useState("principal");
 
-  // Estados de filtros
   const [busqueda, setBusqueda] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("Todos");
   const [filtroPago, setFiltroPago] = useState("Todos");
@@ -26,7 +26,7 @@ export default function App() {
   useEffect(() => {
     async function iniciarYCargar() {
       setCargando(true);
-      setError("");
+      setErrorGlobal("");
       try {
         const auth = getAuth();
         await signInAnonymously(auth);
@@ -46,7 +46,7 @@ export default function App() {
         setCostos(listaCostos);
       } catch (err) {
         console.error(err);
-        setError("No se pudieron cargar los datos de la base de datos.");
+        setErrorGlobal("No se pudieron cargar los datos de la base de datos.");
       } finally {
         setCargando(false);
       }
@@ -55,30 +55,32 @@ export default function App() {
     iniciarYCargar();
   }, []);
 
-  function mostrarAvisoExito(texto) {
-    setMensajeExito(texto);
-    setError("");
+  function mostrarExito(texto) {
+    setMensajeExitoGlobal(texto);
+    setErrorGlobal("");
     setTimeout(() => {
-      setMensajeExito("");
+      setMensajeExitoGlobal("");
     }, 3500);
   }
 
-  function mostrarAvisoError(texto) {
-    setError(texto);
-    setMensajeExito("");
+  function mostrarError(texto) {
+    setErrorGlobal(texto);
+    setMensajeExitoGlobal("");
+    setTimeout(() => {
+      setErrorGlobal("");
+    }, 3500);
   }
 
   async function agregarProyecto(nuevoProyecto) {
-    mostrarAvisoExito("Guardando proyecto...");
     try {
       const docRef = await addDoc(collection(db, "proyectos"), nuevoProyecto);
       const proyectoConId = { id: docRef.id, ...nuevoProyecto };
       setProyectos((anteriores) => [...anteriores, proyectoConId]);
       setMostrarFormulario(false);
-      mostrarAvisoExito("Proyecto creado correctamente.");
+      mostrarExito("¡Logró guardarse el proyecto!");
     } catch (err) {
       console.error(err);
-      mostrarAvisoError("No se pudo guardar el proyecto.");
+      mostrarError("Por favor complete todos los campos vacíos.");
     }
   }
 
@@ -89,10 +91,10 @@ export default function App() {
       setProyectos((anteriores) =>
         anteriores.map((p) => (p.id === id ? { ...p, ...datosActualizados } : p))
       );
-      mostrarAvisoExito("Proyecto actualizado correctamente.");
+      mostrarExito("¡Logró guardarse el proyecto!");
     } catch (err) {
       console.error(err);
-      mostrarAvisoError("No se pudo actualizar el proyecto.");
+      mostrarError("Por favor complete todos los campos vacíos.");
     }
   }
 
@@ -103,10 +105,9 @@ export default function App() {
       setProyectos((anteriores) =>
         anteriores.map((p) => (p.id === id ? { ...p, estadoTrabajo: nuevoEstado } : p))
       );
-      mostrarAvisoExito("Estado actualizado.");
     } catch (err) {
       console.error(err);
-      mostrarAvisoError("No se pudo cambiar el estado.");
+      mostrarError("No se pudo cambiar el estado.");
     }
   }
 
@@ -127,10 +128,10 @@ export default function App() {
       setProyectos((anteriores) =>
         anteriores.map((p) => (p.id === id ? { ...p, ...datosCobro } : p))
       );
-      mostrarAvisoExito("Cobro registrado correctamente.");
+      mostrarExito("Cobro registrado correctamente.");
     } catch (err) {
       console.error(err);
-      mostrarAvisoError("No se pudo registrar el cobro.");
+      mostrarError("No se pudo registrar el cobro.");
     }
   }
 
@@ -138,14 +139,44 @@ export default function App() {
     try {
       await deleteDoc(doc(db, "proyectos", id));
       setProyectos((anteriores) => anteriores.filter((p) => p.id !== id));
-      mostrarAvisoExito("El proyecto fue eliminado con éxito.");
+      mostrarExito("Tu proyecto se eliminó exitosamente");
     } catch (err) {
       console.error(err);
-      mostrarAvisoError("No se pudo eliminar el proyecto.");
+      mostrarError("No se pudo eliminar el proyecto.");
     }
   }
 
-  // Filtrado combinado: búsqueda insensible a mayúsculas + estado + pago
+  let ingresosARS = 0;
+  let ingresosUSD = 0;
+  let proyeccionARS = 0;
+  let proyeccionUSD = 0;
+
+  for (const p of proyectos) {
+    const moneda = p.moneda || "ARS";
+    const montoTotal = Number(p.montoPago || 0);
+    const estadoPago = p.estadoPago || "Impago";
+
+    if (p.estadoTrabajo === "Terminado") {
+      if (moneda === "USD") ingresosUSD += montoTotal;
+      else ingresosARS += montoTotal;
+    } else if (estadoPago === "Con seña") {
+      // Si querés mantener la lógica de seña para proyectos que NO están terminados todavía:
+      const sena = Number(p.montoSena || 0);
+      if (moneda === "USD") ingresosUSD += sena;
+      else ingresosARS += sena;
+
+      const saldo = montoTotal - sena;
+      if (saldo > 0) {
+        if (moneda === "USD") proyeccionUSD += saldo;
+        else proyeccionARS += saldo;
+      }
+    } else if (estadoPago === "Impago") {
+      if (montoTotal > 0) {
+        if (moneda === "USD") proyeccionUSD += montoTotal;
+        else proyeccionARS += montoTotal;
+      }
+    }
+  }
   const proyectosFiltrados = proyectos.filter((proyecto) => {
     const textoBuscado = busqueda.trim().toLowerCase();
     const cumpleBusqueda =
@@ -163,77 +194,133 @@ export default function App() {
 
   if (cargando && proyectos.length === 0 && costos.length === 0) {
     return (
-      <div className="pantalla-carga-global">
+      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', backgroundColor: '#0F0F0F', color: '#FFFFFF' }}>
         <h1>Flow</h1>
-        <p className="slogan">Convertí tus proyectos en ingresos</p>
         <p>Cargando tu espacio de trabajo...</p>
       </div>
     );
   }
 
-  return (
-    <div className="app-wrapper">
-      {/* Header fijo bajo (60px) con marca y navegación */}
-      <header className="header-fijo">
-        <div className="header-marca">
-          <h1>Flow</h1>
-          <span className="header-slogan">Convertí tus proyectos en ingresos</span>
-        </div>
+  const esMobile = typeof window !== "undefined" && window.innerWidth <= 768;
 
-        <nav className="header-nav">
-          <button
-            className={`btn-nav ${vistaActual === "principal" ? "activo" : ""}`}
-            onClick={() => setVistaActual("principal")}
-          >
-            Mis proyectos
-          </button>
-          <button
-            className={`btn-nav ${vistaActual === "financiero" ? "activo" : ""}`}
-            onClick={() => setVistaActual("financiero")}
-          >
-            Registro financiero
-          </button>
-        </nav>
+  return (
+    <div className="app-layout-desktop">
+      {/* Modales de feedback flotantes centrados en mobile o distribuidos en desktop */}
+      {mensajeExitoGlobal && (
+        <div className="modal-feedback-exito" role="status">
+          {mensajeExitoGlobal}
+        </div>
+      )}
+      {errorGlobal && (
+        <div className={esMobile ? "modal-feedback-error" : "modal-feedback-error-izq"} role="alert">
+          {errorGlobal}
+        </div>
+      )}
+
+      {/* Header Fijo Superior para Mobile */}
+      <header className="header-mobile-fijo">
+        <div className="header-mobile-top-row">
+          <div className="sidebar-logo-icon" style={{ padding: '6px' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>all_inclusive</span>
+          </div>
+          <div>
+            <h1>Flow</h1>
+            <p>Convertí proyectos en ingresos</p>
+          </div>
+        </div>
+        <div className="header-mobile-contadores">
+          <div className="tarjeta-contador-sidebar">
+            <span className="valor-ars">{formatearMoneda(ingresosARS, "ARS")}</span>
+            <span className="valor-usd">{formatearMoneda(ingresosUSD, "USD")}</span>
+            <span className="contador-titulo">Ingresos del mes</span>
+          </div>
+          <div className="tarjeta-contador-sidebar">
+            <span className="valor-ars">{formatearMoneda(proyeccionARS, "ARS")}</span>
+            <span className="valor-usd">{formatearMoneda(proyeccionUSD, "USD")}</span>
+            <span className="contador-titulo">Proyección del mes</span>
+          </div>
+        </div>
       </header>
 
-      <main className="contenedor-principal">
-        {mensajeExito && <p className="alerta-exito">{mensajeExito}</p>}
-        {error && <p className="alerta-error" role="alert">{error}</p>}
+      {/* Sidebar Fijo Izquierdo para Desktop */}
+      <aside className="sidebar-desktop">
+        <div>
+          <div className="sidebar-marca">
+            <div className="sidebar-logo-icon">
+              <span className="material-symbols-outlined">all_inclusive</span>
+            </div>
+            <div>
+              <h1>Flow</h1>
+              <p>Convertí proyectos en ingresos</p>
+            </div>
+          </div>
 
+          <nav className="sidebar-nav">
+            <button
+              className={`btn-nav-sidebar ${vistaActual === "principal" ? "activo-proyectos" : ""}`}
+              onClick={() => setVistaActual("principal")}
+            >
+              <span className="material-symbols-outlined">folder_open</span>
+              Mis proyectos
+            </button>
+            <button
+              className={`btn-nav-sidebar ${vistaActual === "financiero" ? "activo-financiero" : ""}`}
+              onClick={() => setVistaActual("financiero")}
+            >
+              <span className="material-symbols-outlined">bar_chart</span>
+              Registro financiero
+            </button>
+          </nav>
+        </div>
+
+        <div className="sidebar-contadores">
+          <div className="tarjeta-contador-sidebar">
+            <span className="valor-ars">{formatearMoneda(ingresosARS, "ARS")}</span>
+            <span className="valor-usd">{formatearMoneda(ingresosUSD, "USD")}</span>
+            <span className="contador-titulo">Ingresos del mes</span>
+          </div>
+          <div className="tarjeta-contador-sidebar">
+            <span className="valor-ars">{formatearMoneda(proyeccionARS, "ARS")}</span>
+            <span className="valor-usd">{formatearMoneda(proyeccionUSD, "USD")}</span>
+            <span className="contador-titulo">Proyección del mes</span>
+          </div>
+        </div>
+      </aside>
+
+      {/* Contenido Principal */}
+      <main className="contenido-principal-desktop">
         {vistaActual === "principal" && (
           <>
-            <div className="encabezado-pagina">
-              <h2>Mis proyectos</h2>
-              <p className="subtitulo-seccion">
-                Planificá tus entregas, organizá tus proyectos y mantené el control de tus proyectos
-              </p>
+            <div className="encabezado-vista">
+              <div className="icono-vista-circulo proyectos">
+                <span className="material-symbols-outlined">folder_open</span>
+              </div>
+              <div className="textos-vista-titulo">
+                <h2>Mis proyectos</h2>
+                <p>Planificá tus entregas, organizá y mantené el control de tus proyectos</p>
+              </div>
             </div>
 
-            {/* Sección 1: Próximas entregas + Calendario */}
             <section className="seccion-bloque">
-              <div className="encabezado-seccion-interna">
-                <h3>Próximas entregas</h3>
-                <p className="subtitulo-seccion">
-                  Consulta tus fechas de entrega y detectá rápidamente los proyectos que requieren atención
-                </p>
-              </div>
               <CalendarioProyectos proyectos={proyectos} />
             </section>
 
-            {/* Sección 2: Espacio de trabajo + Filtros + Grilla de Cards */}
             <section className="seccion-bloque">
               <div className="barra-superior">
-                <div>
-                  <h3>Espacio de trabajo</h3>
-                  <p className="subtitulo-seccion">
-                    Administrá cada etapa de tus proyectos y registrá nuevos trabajos
-                  </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span className="material-symbols-outlined" style={{ color: '#D38B80' }}>list_alt</span>
+                  <div>
+                    <h3>Espacio de trabajo</h3>
+                    <p className="subtitulo-seccion">Administrá cada etapa de tus proyectos y registrá nuevos trabajos</p>
+                  </div>
                 </div>
                 <button
-                  className="btn-primario btn-nuevo-escritorio"
+                  className="btn-primario"
+                  style={{ display: window.innerWidth <= 768 ? 'none' : 'inline-flex' }}
                   onClick={() => setMostrarFormulario(true)}
                 >
-                  + Nuevo proyecto
+                  <span className="material-symbols-outlined">add</span>
+                  Nuevo proyecto
                 </button>
               </div>
 
@@ -251,10 +338,11 @@ export default function App() {
                 setFiltroEstado={setFiltroEstado}
                 filtroPago={filtroPago}
                 setFiltroPago={setFiltroPago}
+                mostrarExito={mostrarExito}
+                mostrarError={mostrarError}
               />
             </section>
 
-            {/* Botón flotante redondo para celular */}
             <button
               className="btn-flotante-movil"
               onClick={() => setMostrarFormulario(true)}
@@ -263,11 +351,11 @@ export default function App() {
               +
             </button>
 
-            {/* Modal de creación */}
             {mostrarFormulario && (
               <FormularioProyecto
                 agregarProyecto={agregarProyecto}
                 cerrarModal={() => setMostrarFormulario(false)}
+                mostrarError={mostrarError}
               />
             )}
           </>
@@ -279,11 +367,29 @@ export default function App() {
             costos={costos}
             setCostos={setCostos}
             registrarCobroProyecto={registrarCobroProyecto}
-            mostrarExito={mostrarAvisoExito}
-            mostrarError={mostrarAvisoError}
+            mostrarExito={mostrarExito}
+            mostrarError={mostrarError}
           />
         )}
       </main>
+
+      {/* Barra de Navegación Inferior para Mobile */}
+      <nav className="nav-movil-inferior">
+        <button
+          className={`btn-nav-movil ${vistaActual === "principal" ? "activo" : ""}`}
+          onClick={() => setVistaActual("principal")}
+        >
+          <span className="material-symbols-outlined">folder_open</span>
+          Mis proyectos
+        </button>
+        <button
+          className={`btn-nav-movil ${vistaActual === "financiero" ? "activo" : ""}`}
+          onClick={() => setVistaActual("financiero")}
+        >
+          <span className="material-symbols-outlined">bar_chart</span>
+          Financiero
+        </button>
+      </nav>
     </div>
   );
 }

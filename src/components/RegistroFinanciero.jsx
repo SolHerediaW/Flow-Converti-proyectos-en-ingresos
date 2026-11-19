@@ -21,7 +21,14 @@ export default function RegistroFinanciero({
   const [monedaCosto, setMonedaCosto] = useState("ARS");
   const [recurrente, setRecurrente] = useState(false);
 
-  // Estados para DolarAPI
+  const [editandoCosto, setEditandoCosto] = useState(null);
+  const [costoAEliminar, setCostoAEliminar] = useState(null);
+
+  const [tituloCostoEdit, setTituloCostoEdit] = useState("");
+  const [montoCostoEdit, setMontoCostoEdit] = useState("");
+  const [monedaCostoEdit, setMonedaCostoEdit] = useState("ARS");
+  const [recurrenteEdit, setRecurrenteEdit] = useState(false);
+
   const [cotizaciones, setCotizaciones] = useState([]);
   const [cargandoDolar, setCargandoDolar] = useState(true);
   const [errorDolar, setErrorDolar] = useState("");
@@ -32,13 +39,9 @@ export default function RegistroFinanciero({
       setErrorDolar("");
       try {
         const respuesta = await fetch("https://dolarapi.com/v1/dolares");
-        if (!respuesta.ok) {
-          throw new Error("Error al consultar DolarAPI");
-        }
+        if (!respuesta.ok) throw new Error("Error DolarAPI");
         const datos = await respuesta.json();
-        const relevantes = datos.filter((d) =>
-          ["oficial", "blue"].includes(d.casa)
-        );
+        const relevantes = datos.filter((d) => ["oficial", "blue"].includes(d.casa));
         setCotizaciones(relevantes);
       } catch (err) {
         console.error(err);
@@ -47,7 +50,6 @@ export default function RegistroFinanciero({
         setCargandoDolar(false);
       }
     }
-
     obtenerCotizaciones();
   }, []);
 
@@ -75,8 +77,8 @@ export default function RegistroFinanciero({
     const tituloLimpio = tituloCosto.trim();
     const montoNumero = Number(montoCosto);
 
-    if (tituloLimpio === "" || montoNumero <= 0) {
-      mostrarError("No se pudo guardar el costo. Verificá que todos los campos obligatorios estén completos.");
+    if (tituloLimpio === "" || !montoCosto || montoNumero <= 0) {
+      mostrarError("Por favor complete todos los campos vacíos.");
       return;
     }
 
@@ -96,10 +98,43 @@ export default function RegistroFinanciero({
       setMontoCosto("");
       setRecurrente(false);
       setMostrarFormCosto(false);
-      mostrarExito("Costo registrado.");
+      mostrarExito("¡Logró guardarse el costo!");
     } catch (err) {
       console.error(err);
-      mostrarError("No se pudo guardar el costo. Verificá que todos los campos obligatorios estén completos.");
+      mostrarError("Por favor complete todos los campos vacíos.");
+    }
+  }
+
+  function iniciarEdicionCosto(costo) {
+    setEditandoCosto(costo);
+    setTituloCostoEdit(costo.titulo || "");
+    setMontoCostoEdit(costo.monto || "");
+    setMonedaCostoEdit(costo.moneda || "ARS");
+    setRecurrenteEdit(costo.recurrente || false);
+  }
+
+  async function guardarEdicionCosto(id) {
+    if (!tituloCostoEdit.trim() || !montoCostoEdit || Number(montoCostoEdit) <= 0) {
+      mostrarError("Por favor complete todos los campos vacíos.");
+      return;
+    }
+
+    try {
+      const datosActualizados = {
+        titulo: tituloCostoEdit.trim(),
+        monto: Number(montoCostoEdit),
+        moneda: monedaCostoEdit,
+        recurrente: recurrenteEdit
+      };
+      await updateDoc(doc(db, "costos", id), datosActualizados);
+      setCostos((anteriores) =>
+        anteriores.map((c) => (c.id === id ? { ...c, ...datosActualizados } : c))
+      );
+      setEditandoCosto(null);
+      mostrarExito("¡Logró guardarse el costo!");
+    } catch (err) {
+      console.error(err);
+      mostrarError("Por favor complete todos los campos vacíos.");
     }
   }
 
@@ -107,27 +142,15 @@ export default function RegistroFinanciero({
     try {
       await deleteDoc(doc(db, "costos", id));
       setCostos((anteriores) => anteriores.filter((c) => c.id !== id));
-      mostrarExito("Costo eliminado.");
+      setCostoAEliminar(null);
+      setEditandoCosto(null);
+      mostrarExito("Tu costo se eliminó exitosamente");
     } catch (err) {
       console.error(err);
       mostrarError("No se pudo eliminar el costo.");
     }
   }
 
-  async function darDeBajaCosto(id) {
-    try {
-      await updateDoc(doc(db, "costos", id), { mesFin: mesSeleccionado });
-      setCostos((anteriores) =>
-        anteriores.map((c) => (c.id === id ? { ...c, mesFin: mesSeleccionado } : c))
-      );
-      mostrarExito("Costo dado de baja a partir de este mes.");
-    } catch (err) {
-      console.error(err);
-      mostrarError("No se pudo dar de baja el costo.");
-    }
-  }
-
-  // 1. Calcular ingresos del mes seleccionado
   const ingresosDelMes = [];
   let ingresosARS = 0;
   let ingresosUSD = 0;
@@ -136,48 +159,28 @@ export default function RegistroFinanciero({
     const moneda = p.moneda || "ARS";
     const montoTotal = Number(p.montoPago || 0);
     const estadoPago = p.estadoPago || "Impago";
+    const estadoTrabajo = p.estadoTrabajo || "Pendiente";
 
-    if (estadoPago === "Con seña") {
-      const sena = Number(p.montoSena || 0);
-      const fecha = p.fechaSena || p.fechaEntrega;
-      if (fecha && fecha.startsWith(mesSeleccionado)) {
-        ingresosDelMes.push({
-          id: p.id + "-sena",
-          cliente: p.cliente,
-          titulo: p.titulo,
-          monto: sena,
-          moneda: moneda,
-          tipo: "Seña",
-          fecha: fecha
-        });
-        if (moneda === "USD") {
-          ingresosUSD += sena;
-        } else {
-          ingresosARS += sena;
-        }
-      }
-    } else if (estadoPago === "Pagado") {
+    if (estadoTrabajo === "Terminado") {
       const fecha = p.fechaCobroPagoFinal || p.fechaEntrega;
       if (fecha && fecha.startsWith(mesSeleccionado)) {
+        // Evitamos duplicar si ya se sumó por seña, tomamos el monto total del proyecto terminado
+        // O simplemente sumamos el monto total directamente:
         ingresosDelMes.push({
-          id: p.id + "-pago",
+          id: p.id + "-terminado",
           cliente: p.cliente,
           titulo: p.titulo,
           monto: montoTotal,
           moneda: moneda,
-          tipo: "Pago total",
+          tipo: "Terminado",
           fecha: fecha
         });
-        if (moneda === "USD") {
-          ingresosUSD += montoTotal;
-        } else {
-          ingresosARS += montoTotal;
-        }
+        if (moneda === "USD") ingresosUSD += montoTotal;
+        else ingresosARS += montoTotal;
       }
     }
   }
 
-  // 2. Filtrar costos del mes seleccionado y separar recurrentes de puntuales
   const costosDelMes = costos.filter((c) => costoCorrespondeAMes(c, mesSeleccionado));
   const costosRecurrentes = costosDelMes.filter((c) => c.recurrente);
   const costosPuntuales = costosDelMes.filter((c) => !c.recurrente);
@@ -186,17 +189,11 @@ export default function RegistroFinanciero({
   let costosUSD = 0;
 
   for (const c of costosDelMes) {
-    if (c.moneda === "USD") {
-      costosUSD += Number(c.monto || 0);
-    } else {
-      costosARS += Number(c.monto || 0);
-    }
+    if (c.moneda === "USD") costosUSD += Number(c.monto || 0);
+    else costosARS += Number(c.monto || 0);
   }
 
-  // 3. Calcular proyectos terminados pendientes de cobro (global, sin depender del mes)
-  const pendientesCobro = [];
-  let porCobrarARS = 0;
-  let porCobrarUSD = 0;
+  const porCobrarProyectos = [];
 
   for (const p of proyectos) {
     if (p.estadoTrabajo === "Terminado" && p.estadoPago !== "Pagado") {
@@ -206,12 +203,7 @@ export default function RegistroFinanciero({
       const saldo = total - sena;
 
       if (saldo > 0) {
-        pendientesCobro.push({ ...p, saldo: saldo, moneda: moneda });
-        if (moneda === "USD") {
-          porCobrarUSD += saldo;
-        } else {
-          porCobrarARS += saldo;
-        }
+        porCobrarProyectos.push({ ...p, saldo: saldo, moneda: moneda });
       }
     }
   }
@@ -220,17 +212,21 @@ export default function RegistroFinanciero({
   const gananciaUSD = ingresosUSD - costosUSD;
 
   return (
-    <section>
-      {/* Encabezado de página con DolarAPI compacto a la derecha */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <div className="barra-superior-financiera">
-        <div>
-          <h2>Registro financiero</h2>
-          <p className="subtitulo-seccion">Analizá ingresos, gastos y ganancias.</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div className="icono-vista-circulo financiero">
+            <span className="material-symbols-outlined">bar_chart</span>
+          </div>
+          <div className="textos-vista-titulo">
+            <h2>Registro financiero</h2>
+            <p>Analizá ingresos, gastos y ganancias</p>
+          </div>
         </div>
 
         <div className="widget-dolar-compacto">
-          {cargandoDolar && <span className="texto-mini">Cargando Dólar...</span>}
-          {errorDolar && <span className="texto-mini">{errorDolar}</span>}
+          {cargandoDolar && <span style={{ fontSize: '12px' }}>Cargando Dólar...</span>}
+          {errorDolar && <span style={{ fontSize: '12px' }}>{errorDolar}</span>}
           {!cargandoDolar && !errorDolar && (
             <div className="dolar-items-fila">
               {cotizaciones.map((dolar) => (
@@ -246,169 +242,146 @@ export default function RegistroFinanciero({
         </div>
       </div>
 
-      {/* Navegador de período */}
       <div className="navegador-mes">
-        <button className="btn-primario" onClick={() => cambiarMes(-1)}>◀ Anterior</button>
+        <button className="btn-secundario" onClick={() => cambiarMes(-1)} title="Anterior">
+          <span className="material-symbols-outlined">chevron_left</span>
+        </button>
         <span className="periodo-actual-texto">
           <strong>{formatearPeriodoLegible(mesSeleccionado)}</strong>
         </span>
-        <button className="btn-primario" onClick={() => cambiarMes(1)}>Siguiente ▶</button>
+        <button className="btn-secundario" onClick={() => cambiarMes(1)} title="Siguiente">
+          <span className="material-symbols-outlined">chevron_right</span>
+        </button>
       </div>
 
-      {/* Dos tarjetas principales: Resultado del mes y Por cobrar */}
-      <div className="panel-contadores">
-        <article className="tarjeta-contador">
-          <h3>Resultado del mes</h3>
-          <div className="resultado-destacado">
-            <span className="etiqueta-ganancia">Ganancia Neta</span>
-            <p className="valor-ganancia-grande">
-              ARS: {formatearMoneda(gananciaARS, "ARS")}
-            </p>
-            <p className="valor-ganancia-grande">
-              USD: {formatearMoneda(gananciaUSD, "USD")}
-            </p>
+      <div className="panel-contadores-financieros">
+        <article className="tarjeta-resumen-fin">
+          <div className="fila-ganancia-top">
+            <span className="valor-ganancia-grande">{formatearMoneda(gananciaARS, "ARS")}</span>
+            <span className="valor-ganancia-grande">{formatearMoneda(gananciaUSD, "USD")}</span>
           </div>
+          <p className="subtitulo-ganancia-blanco">Ganancia Neta</p>
+          <div className="linea-gruesa-financiera"></div>
           <div className="desglose-resultado">
-            <p>
-              <strong>Ingresos totales:</strong>{" "}
-              {formatearMoneda(ingresosARS, "ARS")} | {formatearMoneda(ingresosUSD, "USD")}
-            </p>
-            <p>
-              <strong>Costos totales:</strong>{" "}
-              -{formatearMoneda(costosARS, "ARS")} | -{formatearMoneda(costosUSD, "USD")}
-            </p>
+            <p>Ingresos totales: {formatearMoneda(ingresosARS, "ARS")} | {formatearMoneda(ingresosUSD, "USD")}</p>
+            <p>Costos totales: -{formatearMoneda(costosARS, "ARS")} | -{formatearMoneda(costosUSD, "USD")}</p>
           </div>
         </article>
 
-        <article className="tarjeta-contador">
-          <h3>Por cobrar</h3>
-          <p className="subtitulo-tarjeta-mini">Total acumulado de proyectos terminados pendientes</p>
-          <div className="resultado-destacado">
-            <p className="valor-ganancia-grande">
-              ARS: {formatearMoneda(porCobrarARS, "ARS")}
-            </p>
-            <p className="valor-ganancia-grande">
-              USD: {formatearMoneda(porCobrarUSD, "USD")}
-            </p>
+        <article className="tarjeta-resumen-fin">
+          <div className="fila-por-cobrar-top">
+            <h3>Por cobrar</h3>
+            <span className="subtitulo-derecha-chico">Proyectos terminados cuyo cobro no ha sido registrado</span>
           </div>
-        </article>
-      </div>
+          <div className="linea-gruesa-financiera"></div>
 
-      {/* Pendientes de cobro con botón Registrar cobro */}
-      <div className="seccion-bloque">
-        <h3>Pendientes de cobro (Proyectos terminados)</h3>
-        {pendientesCobro.length === 0 ? (
-          <p>No hay proyectos terminados pendientes de cobro.</p>
-        ) : (
-          <ul className="lista-limpia">
-            {pendientesCobro.map((p) => (
-              <li key={p.id} className="item-pendiente-cobro">
-                <div>
-                  <strong>{p.cliente}</strong> - {p.titulo} | Saldo:{" "}
-                  <strong>{formatearMoneda(p.saldo, p.moneda)}</strong>
+          {porCobrarProyectos.length === 0 ? (
+            <p style={{ color: '#9D9D9D', fontSize: '13px', marginTop: '8px' }}>No hay proyectos terminados pendientes de cobro.</p>
+          ) : (
+            <ul className="lista-limpia" style={{ marginTop: '8px', maxHeight: '160px', overflowY: 'auto' }}>
+              {porCobrarProyectos.map((p, idx) => (
+                <div key={p.id}>
+                  <li className="item-fila-financiera">
+                    <div>
+                      <strong style={{ display: 'block', color: '#FFFFFF' }}>{p.titulo}</strong>
+                      <span style={{ fontSize: '11px', color: '#9D9D9D' }}>{p.cliente}</span>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <span style={{ fontSize: '11px', color: '#9D9D9D', display: 'block' }}>Entrega</span>
+                      <span style={{ fontSize: '12px', color: '#E0E0E0' }}>{p.fechaEntrega}</span>
+                    </div>
+                    <div>
+                      <strong style={{ color: '#FFFFFF' }}>{formatearMoneda(p.saldo, p.moneda)}</strong>
+                    </div>
+                    <button
+                      className="btn-primario"
+                      style={{ padding: '6px 12px', fontSize: '11px' }}
+                      onClick={() => registrarCobroProyecto(p.id)}
+                    >
+                      Registrar cobro
+                    </button>
+                  </li>
+                  {idx < porCobrarProyectos.length - 1 && <div className="linea-fina-financiera"></div>}
                 </div>
-                <button
-                  className="btn-primario"
-                  onClick={() => registrarCobroProyecto(p.id)}
-                >
-                  Registrar cobro
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+              ))}
+            </ul>
+          )}
+        </article>
       </div>
 
-      {/* Dos columnas lado a lado: Ingresos y Costos */}
       <div className="grilla-ingresos-costos">
-        {/* Columna Izquierda: Ingresos */}
         <div className="seccion-bloque">
-          <div className="barra-superior">
-            <h3>Ingresos</h3>
-          </div>
+          <h3>Ingresos</h3>
+          <div className="linea-gruesa-financiera"></div>
+
           {ingresosDelMes.length === 0 ? (
-            <p>No hay ingresos registrados en este mes.</p>
+            <p style={{ color: '#9D9D9D', fontSize: '13px' }}>Todavía no registraste ingresos para este período.</p>
           ) : (
             <ul className="lista-limpia">
-              {ingresosDelMes.map((item) => (
-                <li key={item.id} className="item-financiero">
-                  <strong>{item.cliente}</strong> - {item.titulo} ({item.tipo}):{" "}
-                  <strong>{formatearMoneda(item.monto, item.moneda)}</strong> — {item.fecha}
-                </li>
+              {ingresosDelMes.map((item, idx) => (
+                <div key={item.id}>
+                  <li className="item-fila-financiera">
+                    <div>
+                      <strong style={{ display: 'block', color: '#FFFFFF' }}>{item.titulo}</strong>
+                      <span style={{ fontSize: '11px', color: '#9D9D9D' }}>{item.cliente}</span>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <span style={{ fontSize: '11px', color: '#9D9D9D', display: 'block' }}>Fecha</span>
+                      <span style={{ fontSize: '12px', color: '#E0E0E0' }}>{item.fecha}</span>
+                    </div>
+                    <div>
+                      <strong style={{ color: '#2ECC71' }}>+{formatearMoneda(item.monto, item.moneda)}</strong>
+                    </div>
+                  </li>
+                  {idx < ingresosDelMes.length - 1 && <div className="linea-fina-financiera"></div>}
+                </div>
               ))}
             </ul>
           )}
         </div>
 
-        {/* Columna Derecha: Costos */}
         <div className="seccion-bloque">
-          <div className="barra-superior">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3>Costos</h3>
             <button
-              className="btn-exito"
-              onClick={() => setMostrarFormCosto(!mostrarFormCosto)}
+              className="btn-primario"
+              onClick={() => setMostrarFormCosto(true)}
             >
-              {mostrarFormCosto ? "Cancelar" : "+ Agregar costo"}
+              <span className="material-symbols-outlined">add</span>
+              Agregar costo
             </button>
           </div>
-
-          {mostrarFormCosto && (
-            <form onSubmit={agregarCosto} className="formulario-caja">
-              <div className="campo">
-                <label>Título:</label>
-                <input type="text" value={tituloCosto} onChange={(e) => setTituloCosto(e.target.value)} />
-              </div>
-              <div className="campo">
-                <label>Monto:</label>
-                <input type="number" min="0" value={montoCosto} onChange={(e) => setMontoCosto(e.target.value)} />
-              </div>
-              <div className="campo">
-                <label>Moneda:</label>
-                <select value={monedaCosto} onChange={(e) => setMonedaCosto(e.target.value)}>
-                  <option value="ARS">ARS</option>
-                  <option value="USD">USD</option>
-                </select>
-              </div>
-              <div className="campo-checkbox">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={recurrente}
-                    onChange={(e) => setRecurrente(e.target.checked)}
-                  />{" "}
-                  Costo recurrente mensual
-                </label>
-              </div>
-              <button type="submit" className="btn-primario">Guardar Costo</button>
-            </form>
-          )}
+          <div className="linea-gruesa-financiera"></div>
 
           {costosDelMes.length === 0 ? (
-            <p className="mensaje-vacio">
-              Todavía no registraste costos para este período. Agregá servicios, suscripciones o materiales para calcular tu ganancia real.
-            </p>
+            <p style={{ color: '#9D9D9D', fontSize: '13px' }}>Todavía no registraste costos para este período.</p>
           ) : (
             <div>
               {costosRecurrentes.length > 0 && (
                 <div className="subgrupo-costos">
                   <h4 className="subtitulo-costos">Costos recurrentes (fijos)</h4>
                   <ul className="lista-limpia">
-                    {costosRecurrentes.map((c) => (
-                      <li key={c.id} className="item-costo">
-                        <span>
-                          <strong>{c.titulo}</strong>: {formatearMoneda(c.monto, c.moneda)}
-                        </span>
-                        <div className="botones-fila">
-                          {c.mesFin === "" && (
-                            <button className="btn-editar" onClick={() => darDeBajaCosto(c.id)}>
-                              Dar de baja
-                            </button>
-                          )}
-                          <button className="btn-peligro" onClick={() => eliminarCosto(c.id)}>
-                            Eliminar
+                    {costosRecurrentes.map((c, idx) => (
+                      <div key={c.id}>
+                        <li className="item-fila-financiera">
+                          <div>
+                            <strong style={{ display: 'block', color: '#FFFFFF' }}>{c.titulo}</strong>
+                            <span style={{ fontSize: '11px', color: '#9D9D9D' }}>Recurrente mensual</span>
+                          </div>
+                          <div>
+                            <strong style={{ color: '#FFB3B3' }}>-{formatearMoneda(c.monto, c.moneda)}</strong>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn-editar-icono"
+                            onClick={() => iniciarEdicionCosto(c)}
+                            title="Editar costo"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
                           </button>
-                        </div>
-                      </li>
+                        </li>
+                        {idx < costosRecurrentes.length - 1 && <div className="linea-fina-financiera"></div>}
+                      </div>
                     ))}
                   </ul>
                 </div>
@@ -418,17 +391,27 @@ export default function RegistroFinanciero({
                 <div className="subgrupo-costos">
                   <h4 className="subtitulo-costos">Costos agregados este mes</h4>
                   <ul className="lista-limpia">
-                    {costosPuntuales.map((c) => (
-                      <li key={c.id} className="item-costo">
-                        <span>
-                          <strong>{c.titulo}</strong>: {formatearMoneda(c.monto, c.moneda)}
-                        </span>
-                        <div className="botones-fila">
-                          <button className="btn-peligro" onClick={() => eliminarCosto(c.id)}>
-                            Eliminar
+                    {costosPuntuales.map((c, idx) => (
+                      <div key={c.id}>
+                        <li className="item-fila-financiera">
+                          <div>
+                            <strong style={{ display: 'block', color: '#FFFFFF' }}>{c.titulo}</strong>
+                            <span style={{ fontSize: '11px', color: '#9D9D9D' }}>Puntual</span>
+                          </div>
+                          <div>
+                            <strong style={{ color: '#FFB3B3' }}>-{formatearMoneda(c.monto, c.moneda)}</strong>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn-editar-icono"
+                            onClick={() => iniciarEdicionCosto(c)}
+                            title="Editar costo"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
                           </button>
-                        </div>
-                      </li>
+                        </li>
+                        {idx < costosPuntuales.length - 1 && <div className="linea-fina-financiera"></div>}
+                      </div>
                     ))}
                   </ul>
                 </div>
@@ -437,6 +420,156 @@ export default function RegistroFinanciero({
           )}
         </div>
       </div>
-    </section>
+
+      {/* Modal Nuevo Costo */}
+      {mostrarFormCosto && (
+        <div className="modal-fondo" onClick={() => setMostrarFormCosto(false)}>
+          <div className="modal-ventana-rectangular" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-cabecera-titulo">
+              <h3>Nuevo costo</h3>
+            </div>
+            <form onSubmit={agregarCosto} className="modal-formulario-dos-cols">
+              <div className="modal-cuerpo-grid" style={{ gridTemplateColumns: '1fr' }}>
+                <div className="campo">
+                  <label>Título*</label>
+                  <input type="text" value={tituloCosto} onChange={(e) => setTituloCosto(e.target.value)} />
+                </div>
+                <div className="campo">
+                  <label>Monto a pagar*</label>
+                  <div className="input-grupo-moneda">
+                    <select
+                      className="select-moneda-pegado"
+                      value={monedaCosto}
+                      onChange={(e) => setMonedaCosto(e.target.value)}
+                    >
+                      <option value="ARS">ARS</option>
+                      <option value="USD">USD</option>
+                    </select>
+                    <input
+                      type="number"
+                      min="0"
+                      value={montoCosto}
+                      onChange={(e) => setMontoCosto(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="campo" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    checked={recurrente}
+                    onChange={(e) => setRecurrente(e.target.checked)}
+                  />
+                  <label style={{ cursor: 'pointer', margin: 0 }}>Costo recurrente mensual</label>
+                </div>
+              </div>
+              <div className="modal-pie-acciones">
+                <button type="button" className="btn-secundario" onClick={() => setMostrarFormCosto(false)}>
+                  <span className="material-symbols-outlined">close</span>
+                  Cancelar
+                </button>
+                <button type="submit" className="btn-primario">
+                  <span className="material-symbols-outlined">check</span>
+                  Guardar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Costo */}
+      {editandoCosto && (
+        <div className="modal-fondo" onClick={() => setEditandoCosto(null)}>
+          <div className="modal-ventana-rectangular" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-cabecera-titulo">
+              <h3>Editar costo</h3>
+            </div>
+            <div className="modal-formulario-dos-cols">
+              <div className="modal-cuerpo-grid" style={{ gridTemplateColumns: '1fr' }}>
+                <div className="campo">
+                  <label>Título*</label>
+                  <input type="text" value={tituloCostoEdit} onChange={(e) => setTituloCostoEdit(e.target.value)} />
+                </div>
+                <div className="campo">
+                  <label>Monto a pagar*</label>
+                  <div className="input-grupo-moneda">
+                    <select
+                      className="select-moneda-pegado"
+                      value={monedaCostoEdit}
+                      onChange={(e) => setMonedaCostoEdit(e.target.value)}
+                    >
+                      <option value="ARS">ARS</option>
+                      <option value="USD">USD</option>
+                    </select>
+                    <input
+                      type="number"
+                      min="0"
+                      value={montoCostoEdit}
+                      onChange={(e) => setMontoCostoEdit(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="campo" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    checked={recurrenteEdit}
+                    onChange={(e) => setRecurrenteEdit(e.target.checked)}
+                  />
+                  <label style={{ cursor: 'pointer', margin: 0 }}>Costo recurrente mensual</label>
+                </div>
+              </div>
+              <div className="modal-pie-acciones">
+                <button
+                  type="button"
+                  className="btn-peligro"
+                  onClick={() => setCostoAEliminar(editandoCosto)}
+                >
+                  <span className="material-symbols-outlined">delete</span>
+                  Eliminar
+                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button type="button" className="btn-secundario" onClick={() => setEditandoCosto(null)}>
+                    <span className="material-symbols-outlined">close</span>
+                    Cancelar
+                  </button>
+                  <button type="button" className="btn-primario" onClick={() => guardarEdicionCosto(editandoCosto.id)}>
+                    <span className="material-symbols-outlined">check</span>
+                    Guardar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmación para eliminar costo */}
+      {costoAEliminar && (
+        <div className="modal-fondo">
+          <div className="modal-confirmacion-contenido">
+            <h3>¿Desea eliminar el costo?</h3>
+            <p>Esta acción no se puede deshacer.</p>
+            <div className="modal-confirmacion-botones">
+              <button
+                type="button"
+                className="btn-secundario"
+                onClick={() => setCostoAEliminar(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn-peligro"
+                onClick={() => eliminarCosto(costoAEliminar.id)}
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

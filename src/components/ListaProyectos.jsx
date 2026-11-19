@@ -14,12 +14,15 @@ export default function ListaProyectos({
   filtroEstado,
   setFiltroEstado,
   filtroPago,
-  setFiltroPago
+  setFiltroPago,
+  mostrarExito,
+  mostrarError
 }) {
   const [buscadorEnfocado, setBuscadorEnfocado] = useState(false);
 
-  // Estados para edición
-  const [editandoId, setEditandoId] = useState(null);
+  const [editandoProyecto, setEditandoProyecto] = useState(null);
+  const [proyectoAEliminar, setProyectoAEliminar] = useState(null);
+
   const [tituloEdit, setTituloEdit] = useState("");
   const [descripcionEdit, setDescripcionEdit] = useState("");
   const [clienteEdit, setClienteEdit] = useState("");
@@ -34,16 +37,29 @@ export default function ListaProyectos({
   const [fechaCobroPagoFinalEdit, setFechaCobroPagoFinalEdit] = useState("");
 
   const filtrosEstadoLista = [
-    { label: "Todos", valor: "Todos" },
     { label: "Pendientes", valor: "Pendiente" },
     { label: "En proceso", valor: "En proceso" },
     { label: "Terminado", valor: "Terminado" }
   ];
 
   const estadosTarjeta = ["Pendiente", "En proceso", "Terminado"];
+  const estadosTrabajoOpciones = ["Pendiente", "En proceso", "Terminado"];
+  const opcionesCobro = [
+    { label: "No", valor: "Impago" },
+    { label: "Una seña", valor: "Con seña" },
+    { label: "Pagado completo", valor: "Pagado" }
+  ];
+
+  function manejarClickFiltroEstado(valor) {
+    if (filtroEstado === valor) {
+      setFiltroEstado("Todos");
+    } else {
+      setFiltroEstado(valor);
+    }
+  }
 
   function iniciarEdicion(proyecto) {
-    setEditandoId(proyecto.id);
+    setEditandoProyecto(proyecto);
     setTituloEdit(proyecto.titulo || "");
     setDescripcionEdit(proyecto.descripcion || "");
     setClienteEdit(proyecto.cliente || "");
@@ -59,6 +75,11 @@ export default function ListaProyectos({
   }
 
   function guardarEdicion(id) {
+    if (!tituloEdit.trim() || !clienteEdit.trim() || !montoEdit) {
+      mostrarError("Por favor complete todos los campos vacíos.");
+      return;
+    }
+
     editarProyecto(id, {
       titulo: tituloEdit.trim(),
       descripcion: descripcionEdit.trim(),
@@ -74,60 +95,54 @@ export default function ListaProyectos({
       fechaSena: estadoPagoEdit === "Con seña" ? fechaSenaEdit : "",
       fechaCobroPagoFinal: estadoPagoEdit === "Pagado" ? fechaCobroPagoFinalEdit : ""
     });
-    setEditandoId(null);
+    setEditandoProyecto(null);
   }
 
   return (
     <div>
-      {/* Caja de filtros renovada */}
       <div className="caja-filtros">
-        {/* Fila 1: Buscador arriba + Mostrando X de X a la derecha */}
-        <div className="filtros-fila-superior">
-          <input
-            type="text"
-            className="input-buscador"
-            placeholder={buscadorEnfocado ? "" : "Explora tus proyectos..."}
-            value={busqueda}
-            onFocus={() => setBuscadorEnfocado(true)}
-            onBlur={() => setBuscadorEnfocado(false)}
-            onChange={(e) => setBusqueda(e.target.value)}
-          />
-          <span className="etiqueta-contador">
-            Mostrando {proyectos.length} de {totalProyectos}
-          </span>
+        <input
+          type="text"
+          className="input-buscador-reducido"
+          placeholder={buscadorEnfocado ? "" : "Explora tus proyectos..."}
+          value={busqueda}
+          onFocus={() => setBuscadorEnfocado(true)}
+          onBlur={() => setBuscadorEnfocado(false)}
+          onChange={(e) => setBusqueda(e.target.value)}
+        />
+
+        <div className="filtro-pago-centro">
+          <select value={filtroPago} onChange={(e) => setFiltroPago(e.target.value)}>
+            <option value="Todos">Pago: Todos</option>
+            <option value="Impago">Impago</option>
+            <option value="Con seña">Con seña</option>
+            <option value="Pagado">Pagado</option>
+          </select>
         </div>
 
-        {/* Fila 2: 4 botones de estado a la izquierda + select de pago a la derecha */}
-        <div className="filtros-fila-inferior">
-          <div className="filtros-botones-estado">
-            {filtrosEstadoLista.map((item) => (
-              <button
-                key={item.valor}
-                type="button"
-                className={`btn-filtro-estado ${filtroEstado === item.valor ? "activo" : ""}`}
-                onClick={() => setFiltroEstado(item.valor)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="filtro-pago-derecha">
-            <select value={filtroPago} onChange={(e) => setFiltroPago(e.target.value)}>
-              <option value="Todos">Pago: Todos</option>
-              <option value="Impago">Impago</option>
-              <option value="Con seña">Con seña</option>
-              <option value="Pagado">Pagado</option>
-            </select>
-          </div>
+        <div className="filtros-botones-estado">
+          {filtrosEstadoLista.map((item) => (
+            <button
+              key={item.valor}
+              type="button"
+              className={`btn-filtro-estado ${filtroEstado === item.valor ? "activo" : ""}`}
+              onClick={() => manejarClickFiltroEstado(item.valor)}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
       </div>
+
+      <span className="etiqueta-contador-externo">
+        Mostrando {proyectos.length} de {totalProyectos}
+      </span>
 
       {cargando && <p>Actualizando resultados…</p>}
 
       {!cargando && totalProyectos === 0 && (
         <p className="mensaje-vacio">
-          Todavía no hay proyectos. Creá tu primer proyecto para comenzar a proyectar ingresos.
+          Todavía no hay proyectos. Creá tu primer proyecto para comenzar.
         </p>
       )}
 
@@ -135,229 +150,262 @@ export default function ListaProyectos({
         <p className="mensaje-vacio">No hay proyectos para mostrar con estos filtros.</p>
       )}
 
-      {/* Grilla de 3 columnas para las cards */}
       {!cargando && proyectos.length > 0 && (
-        <div className="grilla-proyectos-tres">
+        <div className="grilla-proyectos-dos">
           {proyectos.map((proyecto) => {
             const moneda = proyecto.moneda || "ARS";
             const estadoPago = proyecto.estadoPago || "Impago";
-            const estaEditando = editandoId === proyecto.id;
+            const estadoTrabajoClase = (proyecto.estadoTrabajo || "Pendiente").toLowerCase().replace(/\s+/g, "-");
+            const necesitaCobro = estadoPago !== "Pagado";
 
             return (
-              <article key={proyecto.id} className="tarjeta-proyecto-card">
-                {estaEditando ? (
-                  <div className="formulario-edicion-card">
-                    <div className="campo">
-                      <label>Título</label>
-                      <input value={tituloEdit} onChange={(e) => setTituloEdit(e.target.value)} />
-                    </div>
-                    <div className="campo">
-                      <label>Cliente</label>
-                      <input value={clienteEdit} onChange={(e) => setClienteEdit(e.target.value)} />
-                    </div>
-                    <div className="campo">
-                      <label>Descripción</label>
-                      <textarea
-                        rows="2"
-                        value={descripcionEdit}
-                        onChange={(e) => setDescripcionEdit(e.target.value)}
-                      />
-                    </div>
-                    <div className="fila-dos-columnas">
-                      <div className="campo">
-                        <label>Entrega</label>
-                        <input
-                          type="date"
-                          value={fechaEntregaEdit}
-                          onChange={(e) => setFechaEntregaEdit(e.target.value)}
-                        />
-                      </div>
-                      <div className="campo">
-                        <label>Horas</label>
-                        <input
-                          type="number"
-                          value={horasEstimadasEdit}
-                          onChange={(e) => setHorasEstimadasEdit(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <div className="campo">
-                      <label>Monto</label>
-                      <div className="input-grupo-moneda">
-                        <select
-                          className="select-moneda-pegado"
-                          value={monedaEdit}
-                          onChange={(e) => setMonedaEdit(e.target.value)}
-                        >
-                          <option value="ARS">ARS</option>
-                          <option value="USD">USD</option>
-                        </select>
-                        <input
-                          type="number"
-                          value={montoEdit}
-                          onChange={(e) => setMontoEdit(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <div className="campo">
-                      <label>Estado de trabajo</label>
-                      <select
-                        value={estadoTrabajoEdit}
-                        onChange={(e) => setEstadoTrabajoEdit(e.target.value)}
-                      >
-                        <option value="Pendiente">Pendiente</option>
-                        <option value="En proceso">En proceso</option>
-                        <option value="Terminado">Terminado</option>
-                      </select>
-                    </div>
-                    <div className="campo">
-                      <label>Estado de pago</label>
-                      <select
-                        value={estadoPagoEdit}
-                        onChange={(e) => setEstadoPagoEdit(e.target.value)}
-                      >
-                        <option value="Impago">Impago</option>
-                        <option value="Con seña">Con seña</option>
-                        <option value="Pagado">Pagado</option>
-                      </select>
-                    </div>
-
-                    {estadoPagoEdit === "Con seña" && (
-                      <div className="fila-dos-columnas">
-                        <div className="campo">
-                          <label>Seña</label>
-                          <input
-                            type="number"
-                            value={montoSenaEdit}
-                            onChange={(e) => setMontoSenaEdit(e.target.value)}
-                          />
-                        </div>
-                        <div className="campo">
-                          <label>Fecha seña</label>
-                          <input
-                            type="date"
-                            value={fechaSenaEdit}
-                            onChange={(e) => setFechaSenaEdit(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {estadoPagoEdit === "Pagado" && (
-                      <div className="campo">
-                        <label>Fecha cobro</label>
-                        <input
-                          type="date"
-                          value={fechaCobroPagoFinalEdit}
-                          onChange={(e) => setFechaCobroPagoFinalEdit(e.target.value)}
-                        />
-                      </div>
-                    )}
-
-                    <div className="card-acciones-inferiores">
-                      <button
-                        type="button"
-                        className="btn-peligro"
-                        onClick={() => eliminarProyecto(proyecto.id)}
-                      >
-                        Eliminar
-                      </button>
-                      <div className="botones-fila">
-                        <button
-                          type="button"
-                          className="btn-exito"
-                          onClick={() => guardarEdicion(proyecto.id)}
-                        >
-                          Guardar
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-secundario"
-                          onClick={() => setEditandoId(null)}
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
+              <article key={proyecto.id} className={`tarjeta-proyecto-card ${estadoTrabajoClase}`}>
+                <div className="card-cabecera">
+                  <div>
+                    <h4 className="card-titulo">{proyecto.titulo}</h4>
+                    <p className="card-cliente">{proyecto.cliente}</p>
                   </div>
-                ) : (
-                  <>
-                    {/* Cabecera de la card: Título/Cliente a la izq | Monto/Cobrado a la der */}
-                    <div className="card-cabecera">
-                      <div className="card-info-izquierda">
-                        <h4 className="card-titulo">{proyecto.titulo}</h4>
-                        <p className="card-cliente">{proyecto.cliente}</p>
-                      </div>
+                  <div className="card-monto-derecha">
+                    <span className="card-monto-total">
+                      {formatearMoneda(proyecto.montoPago, moneda)}
+                    </span>
+                    <span className="card-estado-pago-sub">
+                      {estadoPago === "Con seña"
+                        ? `Con seña: ${moneda} $${proyecto.montoSena || 0}`
+                        : estadoPago}
+                    </span>
+                  </div>
+                </div>
 
-                      <div className="card-monto-derecha">
-                        <span className="card-monto-total">
-                          {formatearMoneda(proyecto.montoPago, moneda)}
-                        </span>
-                        {estadoPago === "Con seña" && (
-                          <span className="card-cobrado-sena">
-                            Cobrado: {formatearMoneda(proyecto.montoSena, moneda)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                <div className="card-detalles-medios">
+                  {proyecto.descripcion && (
+                    <p className="card-descripcion">{proyecto.descripcion}</p>
+                  )}
+                  <p className="card-entrega-horas">
+                    Entrega: {proyecto.fechaEntrega} - {proyecto.horasEstimadas || 0}hs
+                  </p>
+                </div>
 
-                    {/* Descripción chica y línea de Entrega - Horas */}
-                    <div className="card-detalles-medios">
-                      {proyecto.descripcion && (
-                        <p className="card-descripcion">{proyecto.descripcion}</p>
-                      )}
-                      <p className="card-entrega-horas">
-                        Entrega: {proyecto.fechaEntrega} - {proyecto.horasEstimadas || 0} hs
-                      </p>
-                    </div>
+                {necesitaCobro && (
+                  <div className="bloque-cobro-mobile" style={{ display: window.innerWidth <= 768 ? 'block' : 'none', marginTop: '4px' }}>
+                    <button
+                      type="button"
+                      className="btn-primario"
+                      style={{ width: '100%', padding: '10px', fontSize: '12px' }}
+                      onClick={() => registrarCobroProyecto(proyecto.id)}
+                    >
+                      Registrar cobro
+                    </button>
+                  </div>
+                )}
 
-                    {/* Fila de 3 botones de estado (con .map) + Estado de pago a la derecha */}
-                    <div className="card-fila-estados">
-                      <div className="card-botones-estado">
-                        {estadosTarjeta.map((est) => (
-                          <button
-                            key={est}
-                            type="button"
-                            className={`btn-estado-card ${
-                              proyecto.estadoTrabajo === est ? "seleccionado" : "no-seleccionado"
-                            }`}
-                            onClick={() => cambiarEstadoTrabajo(proyecto.id, est)}
-                          >
-                            {est}
-                          </button>
-                        ))}
-                      </div>
+                <div className="card-linea-divisoria"></div>
 
-                      <span className="card-badge-pago">{estadoPago}</span>
-                    </div>
+                <div className="card-fila-inferior">
+                 <div className="card-botones-estado">
+                  {estadosTarjeta.map((est) => (
+                    <button
+                      key={est}
+                      type="button"
+                      className={`btn-estado-card ${
+                      proyecto.estadoTrabajo === est ? "seleccionado" : ""
+                      }`}
+                      onClick={() => cambiarEstadoTrabajo(proyecto.id, est)}
+                    >
+                    {est}
+                    </button>
+                  ))}
+                </div>
 
-                    {/* Pie de la card: Registrar cobro (izq, si no es Pagado) + Editar (der) */}
-                    <div className="card-acciones-inferiores">
-                      <div>
-                        {estadoPago !== "Pagado" && (
-                          <button
-                            type="button"
-                            className="btn-primario btn-sm"
-                            onClick={() => registrarCobroProyecto(proyecto.id)}
-                          >
-                            Registrar cobro
-                          </button>
-                        )}
-                      </div>
-
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {necesitaCobro && (
                       <button
                         type="button"
-                        className="btn-editar btn-sm"
-                        onClick={() => iniciarEdicion(proyecto)}
+                        className="btn-primario"
+                        style={{ display: window.innerWidth <= 768 ? 'none' : 'inline-flex', padding: '6px 12px', fontSize: '11px' }}
+                        onClick={() => registrarCobroProyecto(proyecto.id)}
                       >
-                        Editar
+                        Registrar cobro
                       </button>
-                    </div>
-                  </>
-                )}
+                    )}
+                    <button
+                      type="button"
+                      className="btn-editar-icono"
+                      onClick={() => iniciarEdicion(proyecto)}
+                      title="Editar proyecto"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
+                    </button>
+                  </div>
+                </div>
               </article>
             );
           })}
+        </div>
+      )}
+
+      {/* Modal de Edición */}
+      {editandoProyecto && (
+        <div className="modal-fondo" onClick={() => setEditandoProyecto(null)}>
+          <div className="modal-ventana-rectangular" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-cabecera-titulo">
+              <h3>Editar proyecto</h3>
+            </div>
+
+            <div className="modal-formulario-dos-cols">
+              <div className="modal-cuerpo-grid">
+                <div className="columna-modal-izq">
+                  <div className="campo">
+                    <label>Título*</label>
+                    <input value={tituloEdit} onChange={(e) => setTituloEdit(e.target.value)} />
+                  </div>
+                  <div className="campo">
+                    <label>Cliente*</label>
+                    <input value={clienteEdit} onChange={(e) => setClienteEdit(e.target.value)} />
+                  </div>
+                  <div className="fila-dos-inputs">
+                    <div className="campo">
+                      <label>Entrega*</label>
+                      <input type="date" value={fechaEntregaEdit} onChange={(e) => setFechaEntregaEdit(e.target.value)} />
+                    </div>
+                    <div className="campo">
+                      <label>Horas lab. estimadas*</label>
+                      <input type="number" value={horasEstimadasEdit} onChange={(e) => setHorasEstimadasEdit(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="campo">
+                    <label>Descripción*</label>
+                    <textarea rows="3" value={descripcionEdit} onChange={(e) => setDescripcionEdit(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="columna-modal-der">
+                  <div className="campo">
+                    <label>Estado*</label>
+                    <div className="grupo-botones-segmentados">
+                      {estadosTrabajoOpciones.map((est) => (
+                        <button
+                          key={est}
+                          type="button"
+                          className={`btn-segmento ${estadoTrabajoEdit === est ? "activo" : ""}`}
+                          onClick={() => setEstadoTrabajoEdit(est)}
+                        >
+                          {est}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="campo">
+                    <label>Monto acordado*</label>
+                    <div className="input-grupo-moneda">
+                      <select
+                        className="select-moneda-pegado"
+                        value={monedaEdit}
+                        onChange={(e) => setMonedaEdit(e.target.value)}
+                      >
+                        <option value="ARS">ARS</option>
+                        <option value="USD">USD</option>
+                      </select>
+                      <input
+                        type="number"
+                        value={montoEdit}
+                        onChange={(e) => setMontoEdit(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="campo">
+                    <label>¿Ya cobraste algo?*</label>
+                    <div className="grupo-botones-segmentados">
+                      {opcionesCobro.map((op) => (
+                        <button
+                          key={op.valor}
+                          type="button"
+                          className={`btn-segmento ${estadoPagoEdit === op.valor ? "activo" : ""}`}
+                          onClick={() => setEstadoPagoEdit(op.valor)}
+                        >
+                          {op.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {estadoPagoEdit === "Con seña" && (
+                    <div className="fila-dos-inputs">
+                      <div className="campo">
+                        <label>Monto seña*</label>
+                        <input type="number" value={montoSenaEdit} onChange={(e) => setMontoSenaEdit(e.target.value)} />
+                      </div>
+                      <div className="campo">
+                        <label>Fecha de cobro de seña*</label>
+                        <input type="date" value={fechaSenaEdit} onChange={(e) => setFechaSenaEdit(e.target.value)} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="modal-pie-acciones">
+                <button
+                  type="button"
+                  className="btn-peligro"
+                  onClick={() => setProyectoAEliminar(editandoProyecto)}
+                >
+                  <span className="material-symbols-outlined">delete</span>
+                  Eliminar
+                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn-secundario"
+                    onClick={() => setEditandoProyecto(null)}
+                  >
+                    <span className="material-symbols-outlined">close</span>
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primario"
+                    onClick={() => guardarEdicion(editandoProyecto.id)}
+                  >
+                    <span className="material-symbols-outlined">check</span>
+                    Guardar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmación para eliminar proyecto */}
+      {proyectoAEliminar && (
+        <div className="modal-fondo">
+          <div className="modal-confirmacion-contenido">
+            <h3>¿Desea eliminar el proyecto?</h3>
+            <p>Esta acción no se puede deshacer.</p>
+            <div className="modal-confirmacion-botones">
+              <button
+                type="button"
+                className="btn-secundario"
+                onClick={() => setProyectoAEliminar(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn-peligro"
+                onClick={() => {
+                  eliminarProyecto(proyectoAEliminar.id);
+                  setProyectoAEliminar(null);
+                  setEditandoProyecto(null);
+                }}
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
